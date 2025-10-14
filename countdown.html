@@ -1,0 +1,400 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+    <meta charset="utf-8" />
+    <meta name="viewport" content="width=device-width, initial-scale=1" />
+    <title>Our Little Countdown</title>
+    <script src="https://cdn.tailwindcss.com"></script>
+    <link rel="preconnect" href="https://fonts.googleapis.com">
+    <link rel="preconnect" href="https://fonts.gstatic.com" crossorigin>
+    <link href="https://fonts.googleapis.com/css2?family=Poppins:wght@300;400;600;700&display=swap" rel="stylesheet">
+    <style>
+        :root { --glass: rgba(255,255,255,0.06); --accent: rgba(255,255,255,0.12); }
+        html,body { height:100%; }
+        body {
+            font-family: 'Poppins', sans-serif;
+            background: linear-gradient(135deg, #0f172a 0%, #231a34 50%, #3b0764 100%);
+            color: white;
+            -webkit-font-smoothing:antialiased;
+            -moz-osx-font-smoothing:grayscale;
+            overflow-y: auto;
+            -webkit-overflow-scrolling: touch;
+            margin: 0;
+        }
+
+        .main-container { min-height: 100vh; }
+
+        /* Countdown blocks */
+        .day-block {
+            border: 1px solid rgba(255,255,255,0.08);
+            transition: transform 400ms cubic-bezier(.2,1,.22,1), box-shadow 300ms, filter 300ms, opacity 300ms;
+            will-change: transform;
+            color: white;
+            text-shadow: 0 2px 6px rgba(0,0,0,0.45);
+            background-clip: padding-box;
+        }
+        .day-block:not(.locked):hover { transform: translateY(-8px) scale(1.03) rotate(-0.5deg); box-shadow: 0 18px 40px rgba(0,0,0,0.6); filter: saturate(1.05); }
+
+        /* Locked state for future days */
+        .day-block.locked {
+            opacity: 0.4;
+            cursor: not-allowed;
+            filter: grayscale(80%);
+        }
+        
+        .day-block.locked .lock-icon {
+            display: block;
+        }
+
+        /* Modal / popup animations */
+        .modal-backdrop { background: rgba(0,0,0,0.6); backdrop-filter: blur(6px); -webkit-backdrop-filter: blur(6px); }
+
+        .modal-content {
+            background: linear-gradient(180deg, rgba(255,255,255,0.02), rgba(255,255,255,0.01));
+            border: 1px solid rgba(255,255,255,0.08);
+            box-shadow: 0 20px 60px rgba(2,6,23,0.7);
+            transform-origin: 50% 60%;
+            transition: transform 540ms cubic-bezier(.17,.89,.32,1.28), opacity 300ms ease, filter 300ms;
+            transform: translateY(20px) scale(0.95) rotate(-0.5deg);
+            opacity: 0;
+        }
+        .modal-content.open {
+            transform: translateY(0) scale(1) rotate(0deg);
+            opacity: 1;
+        }
+
+        @keyframes popInSpring {
+            0% { transform: translateY(30px) scale(.88); opacity: 0 }
+            60% { transform: translateY(-8px) scale(1.03); opacity: 1 }
+            100% { transform: translateY(0) scale(1); }
+        }
+
+        .modal-animate { animation: popInSpring 540ms cubic-bezier(.2,.9,.3,1) both; }
+
+        /* little floating hearts inside modal */
+        .hearts { position: absolute; inset: 0; pointer-events: none; overflow: hidden; }
+        .heart { position: absolute; bottom: 10%; width: 18px; height: 18px; opacity: 0.95; transform: translateY(0) scale(0.9); animation: floatUp linear forwards; filter: drop-shadow(0 6px 12px rgba(0,0,0,0.35)); }
+        @keyframes floatUp { 0% { transform: translateY(0) scale(0.9) rotate(0deg); opacity: 0 } 10% { opacity: 1 } 100% { transform: translateY(-140px) scale(1.2) rotate(360deg); opacity: 0 } }
+
+        .confetti { position: fixed; pointer-events:none; z-index: 60; }
+        .boom-container h1 { line-height:0.9; }
+        .modal-inner { max-height: 70vh; overflow-y: auto; }
+        .top-toolbar { position: fixed; right: 16px; top: 16px; z-index: 70; }
+        button:focus { outline: 3px solid rgba(255,214,214,0.18); outline-offset: 4px }
+        @media (max-width:640px){ .day-block { height: 120px } }
+
+        /* special final-day box styling */
+        .special-block {
+            background: radial-gradient(circle at 30% 20%, rgba(255,243,205,0.12), rgba(255,99,132,0.08));
+            border: 1px solid rgba(255,215,180,0.14);
+            box-shadow: 0 30px 80px rgba(236,72,153,0.18), 0 6px 18px rgba(0,0,0,0.45);
+            transform-origin: center;
+            animation: pulse 2000ms infinite;
+            position: relative;
+            overflow: visible;
+        }
+        .special-block .label-main { font-size: 2.25rem; line-height:1; }
+        .special-block .label-sub { font-size: 0.95rem; color: #fff9f2; }
+        @keyframes pulse { 0% { transform: translateY(0) scale(1) } 50% { transform: translateY(-6px) scale(1.02) } 100% { transform: translateY(0) scale(1) } }
+
+        /* ensure grid is responsive and scrollable on very small screens */
+        #countdown-grid { display: grid; grid-template-columns: repeat(auto-fit, minmax(120px, 1fr)); gap: 1rem; width: 100%; }
+        @media (max-width:420px){ #countdown-grid { grid-template-columns: repeat(auto-fit, minmax(100px, 1fr)); gap: 0.6rem } }
+    </style>
+</head>
+<body>
+
+    <!-- Preview / Demo toolbar -->
+    <div class="top-toolbar">
+        <div class="flex gap-2">
+            <button id="preview-btn" class="hidden px-4 py-2 rounded-full bg-white/8 hover:bg-white/12 border border-white/10 text-sm">Open Live Preview</button>
+            <button id="demo-popup" class="hidden px-4 py-2 rounded-full bg-pink-500/20 hover:bg-pink-500/30 border border-pink-500/30 text-sm">Play Popup</button>
+        </div>
+    </div>
+
+    <div id="app-container" class="main-container flex flex-col items-center justify-start p-6 sm:p-8 lg:p-12 pt-24">
+        <div class="text-center mb-8 max-w-3xl mx-auto">
+            <h1 class="text-4xl sm:text-5xl md:text-6xl font-bold tracking-tight">A Gentle Countdown for Us</h1>
+            <p class="text-lg sm:text-xl text-gray-300 mt-2">Counting down to the day I get to hold you close — November 5th</p>
+        </div>
+
+        <div id="pre-countdown-note" class="text-center mb-8 text-lg text-gray-300 hidden max-w-2xl"></div>
+
+        <div id="countdown-grid" class="w-full max-w-6xl"></div>
+
+        <div id="few-days-message" class="text-center mt-12 hidden">
+            <h2 class="text-2xl font-semibold">Every heartbeat whispers your name...</h2>
+            <p class="mt-2 text-gray-300">We're almost there — I can already feel your warmth.</p>
+        </div>
+
+        <footer class="mt-12 text-center text-sm text-gray-300">Made with ❤️ and a thousand little daydreams.</footer>
+    </div>
+
+    <div id="boom-container" class="main-container hidden flex-col items-center justify-center text-center p-4">
+        <h1 class="text-7xl sm:text-8xl md:text-9xl font-extrabold" style="background: linear-gradient(45deg, #fde047, #f97316, #ec4899); -webkit-background-clip: text; -webkit-text-fill-color: transparent;">TODAY</h1>
+        <h2 class="text-3xl sm:text-4xl font-semibold mt-4">The Moment I've Waited For</h2>
+        <p class="text-xl sm:text-2xl mt-2 text-gray-200">My heart is overflowing — today is all about you and us.</p>
+    </div>
+
+    <div id="surprise-modal" class="fixed inset-0 z-60 hidden items-center justify-center p-4 modal-backdrop" aria-hidden="true" role="dialog" aria-modal="true">
+        <div class="modal-content w-full max-w-md rounded-2xl p-6 sm:p-8 relative">
+            <div class="hearts" aria-hidden="true"></div>
+            <button id="close-modal" class="absolute top-4 right-4 text-white/80 hover:text-white text-3xl leading-none" aria-label="Close">&times;</button>
+            <div class="modal-inner">
+                <h3 class="text-2xl font-bold text-center mb-3" id="modal-title">A Little Love Note</h3>
+                <p class="text-center text-lg text-gray-200" id="modal-message">Each day I think of you and smile. Here's a tiny reminder of how special you are to me.</p>
+                <img id="modal-image" class="mt-6 rounded-lg mx-auto max-h-60 w-full object-cover" src="" alt="Surprise Image" style="display:none">
+            </div>
+        </div>
+    </div>
+
+    <script>
+    (function(){
+        // Scoped to avoid accidental globals
+        const countdownGrid = document.getElementById('countdown-grid');
+        const appContainer = document.getElementById('app-container');
+        const boomContainer = document.getElementById('boom-container');
+        const preCountdownNote = document.getElementById('pre-countdown-note');
+        const fewDaysMessage = document.getElementById('few-days-message');
+        const modal = document.getElementById('surprise-modal');
+        const modalContent = modal.querySelector('.modal-content');
+        const closeModalBtn = document.getElementById('close-modal');
+        const modalTitle = document.getElementById('modal-title');
+        const modalMessage = document.getElementById('modal-message');
+        const modalImage = document.getElementById('modal-image');
+        const heartsLayer = modal.querySelector('.hearts');
+        const previewBtn = document.getElementById('preview-btn');
+        const demoPopupBtn = document.getElementById('demo-popup');
+
+        // --- Target Date ---
+        const targetDate = new Date();
+        targetDate.setMonth(10,5); // Nov 5
+        targetDate.setHours(0,0,0,0);
+        if (new Date() > targetDate) targetDate.setFullYear(targetDate.getFullYear()+1);
+
+        // Romantic surprises (day-specific)
+        const surprises = {
+            20: { message: "Twenty sunsets couldn't match the glow you put in my soul.", image: "https://placehold.co/600x360/8b5cf6/ffffff?text=My+Glow" },
+            19: { message: "My chest flutters thinking of you — 19 days and counting, my love.", image: "https://placehold.co/600x360/ec4899/ffffff?text=Flutter" },
+            18: { message: "Every morning with you in my thoughts feels like a fresh sunrise.", image: "https://placehold.co/600x360/f97316/ffffff?text=Sunrise" },
+            15: { message: "A little closer, a little brighter — our moments are what I live for.", image: "https://placehold.co/600x360/ef4444/ffffff?text=Closer" },
+            10: { message: "Ten heartbeats for each day — that's how excited I am.", image: "https://placehold.co/600x360/fde047/000000?text=Ten+Heartbeats" },
+            7:  { message: "One week, my love. I already have a playlist made of your laughter.", image: "https://placehold.co/600x360/10b981/ffffff?text=Playlist" },
+            5:  { message: "Five days and every second is a soft reminder of how much I adore you.", image: "https://placehold.co/600x360/6366f1/ffffff?text=Adore" },
+            3:  { message: "Three little words: I am so excited.", image: "https://placehold.co/600x360/3b82f6/ffffff?text=Excited" },
+            1:  { message: "Tomorrow I get to see your smile in person — I can hardly breathe.", image: "https://placehold.co/600x360/d946ef/ffffff?text=Tomorrow" }
+        };
+
+        const defaultMessages = [
+            "Another sunset closer — dreams of you.", "A note: your laugh is my favorite song tonight.", "Counting stars and thinking of your hand in mine.",
+            "Small steps, big hugs — that's our path.", "Just a reminder: you make ordinary days extraordinary.", "Sneaking a smile because you crossed my mind.",
+            "Warm thoughts and a little daydream about us."
+        ];
+        const defaultImages = [
+            "https://placehold.co/600x360/1e3a8a/ffffff?text=You+%26+Me", "https://placehold.co/600x360/7c3aed/ffffff?text=Moonlight",
+            "https://placehold.co/600x360/ef4444/ffffff?text=Sweet+Smile", "https://placehold.co/600x360/06b6d4/ffffff?text=Warm+Coffee",
+            "https://placehold.co/600x360/f97316/ffffff?text=Sunset+Thoughts"
+        ];
+
+        function pickRandom(arr){ return arr[Math.floor(Math.random()*arr.length)]; }
+
+        const gradients = [
+            'linear-gradient(135deg, #ec4899, #8b5cf6)', 'linear-gradient(135deg, #f97316, #ec4899)',
+            'linear-gradient(135deg, #10b981, #6366f1)', 'linear-gradient(135deg, #fde047, #f97316)',
+            'linear-gradient(135deg, #6366f1, #3b82f6)'
+        ];
+
+        let currentDaysLeft = null;
+
+        function updateCountdown(){
+            const now = new Date();
+            const startOfToday = new Date(now.getFullYear(), now.getMonth(), now.getDate());
+            const startOfTargetDay = targetDate;
+            const msPerDay = 1000 * 60 * 60 * 24;
+            const diff = startOfTargetDay.getTime() - startOfToday.getTime();
+            const daysLeft = Math.round(diff / msPerDay);
+
+            if (daysLeft > 20) {
+                const countdownStartDate = new Date(targetDate);
+                countdownStartDate.setDate(targetDate.getDate() - 20);
+                const dateOptions = { month: 'long', day: 'numeric' };
+                const formattedDate = countdownStartDate.toLocaleDateString('en-US', dateOptions);
+                preCountdownNote.innerHTML = `Our journey begins soon! The first box will unlock on <span class="font-bold text-white">${formattedDate}</span>.`;
+                preCountdownNote.classList.remove('hidden');
+            } else {
+                preCountdownNote.classList.add('hidden');
+            }
+
+            currentDaysLeft = daysLeft;
+            
+            if (daysLeft <= 0 && daysLeft > -365) {
+                 triggerBoom();
+                 renderBlocks();
+            } else {
+                 renderBlocks();
+            }
+        }
+
+        function renderBlocks(){
+            countdownGrid.innerHTML = '';
+            const isBoomDay = currentDaysLeft <= 0;
+
+            function createNumberBlock(n){
+                const block = document.createElement('button');
+                const isUnlocked = n >= currentDaysLeft || isBoomDay;
+
+                block.className = 'day-block flex flex-col items-center justify-center h-36 rounded-2xl p-4 text-center focus:outline-none';
+                if (!isUnlocked) {
+                    block.classList.add('locked');
+                    block.setAttribute('disabled', true);
+                    block.setAttribute('aria-label', `Day ${n}, locked`);
+                }
+                block.dataset.day = n;
+                const gradient = gradients[(20 - n) % gradients.length];
+                block.style.background = gradient;
+
+                const isActive = (currentDaysLeft === n);
+                if (isActive && isUnlocked) {
+                    block.style.outline = '3px solid rgba(255,214,214,0.12)';
+                    block.style.boxShadow = '0 22px 60px rgba(0,0,0,0.6)';
+                    block.style.transform = 'translateY(-6px) scale(1.02)';
+                }
+
+                block.innerHTML = `<div class="label-main text-3xl sm:text-4xl font-extrabold">${n}</div><div class="label-sub text-sm mt-1">${n > 1 ? n + ' days to go' : '1 day to go'}</div><div class="lock-icon hidden absolute text-3xl">🔒</div>`;
+
+                if (isUnlocked) {
+                    block.addEventListener('click', ()=> showSurprise(n, gradient, false));
+                }
+                return block;
+            }
+
+            for (let n = 20; n >= 1; n--) {
+                countdownGrid.appendChild(createNumberBlock(n));
+            }
+
+            const special = document.createElement('button');
+            special.className = 'day-block special-block flex flex-col items-center justify-center h-44 rounded-3xl p-5 text-center focus:outline-none';
+            if (!isBoomDay) {
+                special.classList.add('locked');
+                special.setAttribute('disabled', true);
+                special.setAttribute('aria-label', `The special day, locked`);
+            }
+            special.dataset.day = 0;
+            const specialGradient = 'linear-gradient(135deg, #ffb86b, #ff4da6)';
+            special.style.background = specialGradient;
+
+            if (isBoomDay) {
+                special.style.border = '1px solid rgba(255,200,160,0.28)';
+                special.style.boxShadow = '0 40px 120px rgba(236,72,153,0.24)';
+                special.style.transform = 'translateY(-8px) scale(1.03)';
+                special.addEventListener('click', ()=> showSurprise(0, specialGradient, true));
+            }
+
+            special.innerHTML = '<div class="label-main text-2xl sm:text-3xl font-extrabold">We made it</div>';
+            countdownGrid.appendChild(special);
+        }
+
+        function showSurprise(day, backgroundStyle, isTodayBox){
+            
+
+            if (isTodayBox || day === 0){
+                const specialSurprise = {
+                    message: "Today we write the sweetest chapter — every heartbeat is a promise. I can't wait to hold you close.",
+                    image: "https://placehold.co/800x480/ff7ab6/ffffff?text=Today+-+My+Everything"
+                };
+                modalTitle.textContent = "Today — All My Love";
+                modalMessage.textContent = specialSurprise.message;
+                modalImage.style.display = 'none';
+                modalImage.alt = 'Our special day image';
+                var onLoadS = function(){ modalImage.style.display = 'block'; cleanupS(); };
+                var onErrorS = function(){ modalImage.style.display = 'none'; cleanupS(); };
+                function cleanupS(){ modalImage.removeEventListener('load', onLoadS); modalImage.removeEventListener('error', onErrorS); }
+                modalImage.addEventListener('load', onLoadS);
+                modalImage.addEventListener('error', onErrorS);
+                modalImage.src = specialSurprise.image;
+                modalContent.style.background = 'linear-gradient(180deg, rgba(255,250,242,0.06), rgba(255,230,230,0.03))';
+                heartsLayer.innerHTML = '';
+                for (let i=0;i<16;i++){
+                    const h = document.createElement('div'); h.className = 'heart'; h.style.left = (Math.random()*80 + 10) + '%';
+                    h.style.animationDuration = (2 + Math.random()*2) + 's'; h.style.animationDelay = (Math.random()*0.5)+'s'; h.innerHTML = '💖'; heartsLayer.appendChild(h);
+                }
+            } else {
+                const base = surprises.hasOwnProperty(day) ? surprises[day] : null;
+                const surprise = base || { message: pickRandom(defaultMessages), image: pickRandom(defaultImages) };
+                const dayTitles = { 20: "Twenty little reasons why I smile.", 19: "A flutter in my chest whenever I think of you.", 18: "Sunrise thoughts — you fill my morning.", 15: "Closer each day, louder my heart.", 10: "Ten tiny confessions: I adore you.", 7:  "One week — my head is full of your laugh.", 5:  "Five soft reminders: you're my favorite.", 3:  "Three whispers: I can't wait.", 1:  "Tomorrow — butterflies and your smile." };
+                const titlePool = ["Just thinking of you", "A small whisper for your heart", "A tiny daydream about us", "Here's a smile I saved for you", "Signed, your biggest fan"];
+                modalTitle.textContent = dayTitles.hasOwnProperty(day) ? dayTitles[day] : pickRandom(titlePool);
+                modalMessage.textContent = surprise.message;
+                modalImage.style.display = 'none';
+                modalImage.alt = 'A tiny surprise just for you';
+                var onLoad = function(){ modalImage.style.display = 'block'; cleanup(); };
+                var onError = function(){ modalImage.style.display = 'none'; cleanup(); };
+                function cleanup(){ modalImage.removeEventListener('load', onLoad); modalImage.removeEventListener('error', onError); }
+                modalImage.addEventListener('load', onLoad);
+                modalImage.addEventListener('error', onError);
+                modalImage.src = surprise.image;
+                if (backgroundStyle) modalContent.style.background = backgroundStyle;
+                heartsLayer.innerHTML = '';
+                for (let i=0;i<8;i++){
+                    const h = document.createElement('div'); h.className = 'heart'; h.style.left = (Math.random()*80 + 10) + '%';
+                    h.style.animationDuration = (3 + Math.random()*2) + 's'; h.style.animationDelay = (Math.random()*0.4)+'s'; h.innerHTML = '❤️'; heartsLayer.appendChild(h);
+                }
+            }
+
+            modal.setAttribute('aria-hidden','false');
+            modal.classList.remove('hidden');
+            modalContent.classList.remove('open','modal-animate');
+            modalContent.offsetWidth;
+            requestAnimationFrame(()=> modalContent.classList.add('open','modal-animate'));
+        }
+
+        function closeModal(){
+            modalContent.classList.remove('open','modal-animate');
+            modal.setAttribute('aria-hidden','true');
+            setTimeout(()=> modal.classList.add('hidden'), 420);
+        }
+
+        closeModalBtn.addEventListener('click', closeModal);
+        modal.addEventListener('click', function(e){ if (e.target === modal) closeModal(); });
+        document.addEventListener('keydown', function(e){ if (e.key === 'Escape') closeModal(); });
+
+        let boomTriggered = false;
+        function triggerBoom(){
+            if(boomTriggered) return;
+            boomTriggered = true;
+            appContainer.classList.add('opacity-0');
+            setTimeout(()=>{
+                appContainer.style.display='none';
+                boomContainer.classList.remove('hidden');
+                boomContainer.classList.add('flex');
+                for (let i=0;i<80;i++) createConfetti();
+            },300);
+        }
+
+        function createConfetti(){
+            const c = document.createElement('div'); c.className = 'confetti';
+            const colors = ['#fde047','#f97316','#ec4899','#8b5cf6','#10b981','#ffffff'];
+            const size = 6 + Math.random()*12;
+            c.style.width = size + 'px'; c.style.height = size + 'px'; c.style.left = (Math.random()*100) + 'vw';
+            c.style.top = (-10 - Math.random()*10) + 'vh'; c.style.background = colors[Math.floor(Math.random()*colors.length)]; c.style.opacity = 0.95;
+            const dur = 3000 + Math.random()*3000;
+            c.style.transition = `transform ${dur}ms linear, opacity ${dur}ms linear`;
+            document.body.appendChild(c);
+            requestAnimationFrame(()=>{ c.style.transform = `translateY(${(110 + Math.random()*60)}vh) rotate(${(360 + Math.random()*720)}deg)`; c.style.opacity = 0; });
+            setTimeout(()=> c.remove(), dur+50);
+        }
+
+        previewBtn.addEventListener('click', function(){
+            try{ const full = '<!doctype html>' + document.documentElement.outerHTML; const blob = new Blob([full], { type: 'text/html' }); const url = URL.createObjectURL(blob); window.open(url, '_blank');
+            }catch(err){ console.error('Preview failed', err); }
+        });
+        demoPopupBtn.addEventListener('click', function(){ showSurprise(3, gradients[0]); });
+
+        updateCountdown();
+        setInterval(updateCountdown, 1000 * 60 * 30);
+    })();
+    </script>
+</body>
+</html>
+
+
